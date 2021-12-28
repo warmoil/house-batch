@@ -48,7 +48,7 @@ public class LawdInsertJobConfig {
             return stepBuilderFactory.get("lawdInsertStep")
                     .<Lawd , Lawd>chunk(1000)
                     .reader(lawdFileItemReader)
-                    .writer(itemWriter())
+                    .writer(itemWriter)
                     .build();
     }
 

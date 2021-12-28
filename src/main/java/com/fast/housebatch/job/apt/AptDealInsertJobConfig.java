@@ -2,22 +2,25 @@ package com.fast.housebatch.job.apt;
 
 import com.fast.housebatch.adapter.ApartmentApiResource;
 import com.fast.housebatch.core.dto.AptDealDto;
+import com.fast.housebatch.core.repository.LawdRepository;
 import com.fast.housebatch.job.validator.LawdCdParameterValidator;
 import com.fast.housebatch.job.validator.YearMonthParameterValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.JobParametersValidator;
-import org.springframework.batch.core.Step;
+import org.springframework.batch.core.*;
 import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.JobScope;
 import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.CompositeJobParametersValidator;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
+import org.springframework.batch.core.scope.context.ChunkContext;
+import org.springframework.batch.core.step.tasklet.Tasklet;
+import org.springframework.batch.item.ExecutionContext;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.batch.item.xml.StaxEventItemReader;
 import org.springframework.batch.item.xml.builder.StaxEventItemReaderBuilder;
+import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -25,6 +28,7 @@ import org.springframework.oxm.jaxb.Jaxb2Marshaller;
 
 import java.time.YearMonth;
 import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @RequiredArgsConstructor
@@ -34,23 +38,68 @@ public class AptDealInsertJobConfig {
     private final JobBuilderFactory jobBuilderFactory;
     private final StepBuilderFactory stepBuilderFactory;
     private final ApartmentApiResource apartmentApiResource;
-
+    private final LawdRepository lawdRepository;
 
     @Bean
-    public Job aptDealInsertJob(Step aptDealInsertStep) {
+    public Job aptDealInsertJob(
+            Step aptDealInsertStep,
+                                Step guLawdCdStep,
+            Step stepContextPrint
+    ) {
         return jobBuilderFactory.get("aptDealInsertJob")
                 .incrementer(new RunIdIncrementer())
-                .validator(aptDealJobParameterValidator())
-                .start(aptDealInsertStep)//step
+              //  .validator(aptDealJobParameterValidator())
+                .start(guLawdCdStep)//step
+                .next(stepContextPrint)
+                .next(aptDealInsertStep)
                 .build();
 
+    }
+
+    @JobScope
+    @Bean
+    public Step guLawdCdStep(Tasklet guLawdCdTasklet) {
+        return stepBuilderFactory.get("guLawdCdStep")
+                .tasklet(guLawdCdTasklet)
+                .build();
+    }
+
+    @Bean
+    @StepScope
+    public Tasklet guLawdCdTasklet() {
+        return (contribution, chunkContext) -> {
+            StepExecution stepExecution = chunkContext.getStepContext().getStepExecution();
+            ExecutionContext executionContext = stepExecution.getJobExecution().getExecutionContext();
+            List<String> guLawdCd = lawdRepository.searchDistinctGuLawdCd();
+            executionContext.putString("guLawdCd", guLawdCd.get(0));
+            return RepeatStatus.FINISHED;
+        };
+    }
+
+    @JobScope
+    @Bean
+    public Step stepContextPrint(Tasklet contextTaskletPrint) {
+        return stepBuilderFactory.get("stepContextPrint")
+                .tasklet(contextTaskletPrint)
+                .build();
+    }
+
+    @StepScope
+    @Bean
+    public Tasklet contextTaskletPrint(
+            @Value("#{jobExecutionContext['guLawdCd']}") String guLawdCd
+    ) {
+        return ((contribution, chunkContext) -> {
+            System.out.println("[contextPrintStep]"+guLawdCd);
+            return RepeatStatus.FINISHED;
+        });
     }
 
     private JobParametersValidator aptDealJobParameterValidator() {
         CompositeJobParametersValidator validator = new CompositeJobParametersValidator();
         validator.setValidators(Arrays.asList(
-                new YearMonthParameterValidator(),
-                new LawdCdParameterValidator()
+                new YearMonthParameterValidator()
+                //    new LawdCdParameterValidator()
         ));
         return validator;
     }
@@ -71,7 +120,7 @@ public class AptDealInsertJobConfig {
             (
                     //@Value("#{jobParameters['filePath']}") String filePath,
                     @Value("#{jobParameters['yearMonth']}") String yearMonth,
-                    @Value("#{jobParameters['lawdCd']}") String lawdCd,
+                    @Value("#{jobExecutionContext['guLawdCd']}") String lawdCd,
                     Jaxb2Marshaller aptDealDtoMarshaller) {
         return new StaxEventItemReaderBuilder<AptDealDto>()
                 .name("aptDealResourceReader")
