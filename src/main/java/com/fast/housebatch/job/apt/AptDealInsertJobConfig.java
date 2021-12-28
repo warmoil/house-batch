@@ -42,16 +42,16 @@ public class AptDealInsertJobConfig {
 
     @Bean
     public Job aptDealInsertJob(
-            Step aptDealInsertStep,
-                                Step guLawdCdStep,
+//            Step aptDealInsertStep, //이건 실제로 API호출 하루 천건 재한
+            Step guLawdCdStep,
             Step stepContextPrint
     ) {
         return jobBuilderFactory.get("aptDealInsertJob")
                 .incrementer(new RunIdIncrementer())
-              //  .validator(aptDealJobParameterValidator())
+                //  .validator(aptDealJobParameterValidator())
                 .start(guLawdCdStep)//step
                 .next(stepContextPrint)
-                .next(aptDealInsertStep)
+//                .next(aptDealInsertStep)
                 .build();
 
     }
@@ -70,6 +70,9 @@ public class AptDealInsertJobConfig {
         return (contribution, chunkContext) -> {
             StepExecution stepExecution = chunkContext.getStepContext().getStepExecution();
             ExecutionContext executionContext = stepExecution.getJobExecution().getExecutionContext();
+
+            //데이터가 있으면 다음스텝을 실행하고 데이터가 없으면종료
+            //데이터가 있으면 CONTINUABLE
             List<String> guLawdCd = lawdRepository.searchDistinctGuLawdCd();
             executionContext.putString("guLawdCd", guLawdCd.get(0));
             return RepeatStatus.FINISHED;
@@ -90,7 +93,7 @@ public class AptDealInsertJobConfig {
             @Value("#{jobExecutionContext['guLawdCd']}") String guLawdCd
     ) {
         return ((contribution, chunkContext) -> {
-            System.out.println("[contextPrintStep]"+guLawdCd);
+            System.out.println("[contextPrintStep]" + guLawdCd);
             return RepeatStatus.FINISHED;
         });
     }
@@ -106,9 +109,9 @@ public class AptDealInsertJobConfig {
 
     @JobScope
     @Bean
-    public Step aptDealInsertStep(StaxEventItemReader<AptDealDto> aptDealResourceReader ,ItemWriter<AptDealDto> aptDealDtoItemWriter) {
+    public Step aptDealInsertStep(StaxEventItemReader<AptDealDto> aptDealResourceReader, ItemWriter<AptDealDto> aptDealDtoItemWriter) {
         return stepBuilderFactory.get("aptDealInsertStep")
-                .<AptDealDto , AptDealDto>chunk(10)
+                .<AptDealDto, AptDealDto>chunk(10)
                 .reader(aptDealResourceReader)
                 .writer(aptDealDtoItemWriter)
                 .build();
